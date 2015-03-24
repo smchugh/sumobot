@@ -73,7 +73,7 @@ Start_Delay:                                    ' five second delay
     FREQOUT Speaker, 100, 2500, 3000            ' beep each second
   NEXT
 
-  GOTO Lunge                                    ' start aggressive!
+  GOTO Dodge                                    ' start aggressive!
 
 ' -----[ Program Code ]----------------------------------------------------
 
@@ -176,6 +176,25 @@ Lunge:                                          ' locked on -- go get him!
   GOTO Main
 
 ' -----[ Subroutines ]-----------------------------------------------------
+
+Dodge:
+  FOR pulses = 1 TO 10
+    PULSOUT LMotor, LFwdFast
+    PULSOUT RMotor, RRevFast
+    PAUSE 20
+  NEXT
+  FOR pulses = 1 TO 30
+    PULSOUT LMotor, LFwdFast
+    PULSOUT RMotor, RFwdFast
+    PAUSE 20
+  NEXT
+  FOR pulses = 1 TO 20
+    PULSOUT LMotor, LRevFast
+    PULSOUT RMotor, RFwdFast
+    PAUSE 20
+  NEXT
+  lastIr = %00
+  GOTO Lunge
 
 Read_Line_Sensors:
   HIGH LLinePwr                                 ' activate sensors
