@@ -1,242 +1,259 @@
-' SumoBot-5.1-Basic-Competition-Program.BS2
+' TS Compete Straight Search and Destroy.BS2
 ' {$STAMP BS2}
 ' {$PBASIC 2.5}
+'
+'********************* Straight Search and Destroy Program ************************************
+'
+' Copyright Louis A. Lippincott 2013 All Rights Reserved
+'
+' Created by Lou Lippincott 6/21/13 to include an adjustment (AGC constant) for IR receiver sensitivity
+' and a dynamic adjustment for the Line Sensors at Startup. A dynamic adjustment will
+' help to compensate for changes in ambient lighting at the time of the match.
+'
+' A larger value for AGC will make the IR Receivers less sensitive and will shorten the "Kill-Zone."
+' A smaller value for AGC will make the IR Receivers more sensitive and more prone to false triggers.
+'
+'
+' This code is streamlined to remove most of the delays to improve response time and IR Sensor sample rate.
+'
+' NOTE: This software will work best with the hardware IR Sensor changes suggested by Lou Lippincott
+'*********************************************************************************
+'
+' This program runs a straight pattern until the edge of the ring or opponent is seen, then turns or attacks.
+' Use this program to compete in the ring.
+'
+'*************************************************************************************
+
+' -----[ Constants ]-------------------------------------------------------
+
+AGC          CON        06                      ' Left/Right IR Receivers AGC time in milliseconds
+
+LFastF       CON        1000                    ' left motor fast forward
+LSlowF       CON        800                     ' left motor slow forward
+LStop        CON        750                     ' left motor stop
+LSlowR       CON        700                     ' left motor slow reverse
+LFastR       CON        500                     ' left motor fast reverse
+
+RFastF       CON        500                     ' right motor fast forward
+RSlowF       CON        700                     ' right motor slow forward
+RStop        CON        750                     ' right motor stop
+RSlowR       CON        800                     ' right motor slow reverse
+RFastR       CON        1000                    ' right motor fast reverse
 
 ' -----[ I/O Definitions ]-------------------------------------------------
+
+Speaker      PIN        1                       ' Speaker
+RedLED       PIN        0                       ' Red LED used to show status
+
+LIrOut       PIN        4                       ' left IR LED output
+LIRIn        PIN        11                      ' left IR sensor input
+RIROut       PIN        15                      ' right IR LED output
+RIRIn        PIN        14                      ' right IR sensor input
 
 LMotor       PIN        13                      ' left servo motor
 RMotor       PIN        12                      ' right servo motor
 
-LLinePwr     PIN        10                      ' left line sensor power
+LLinePower   PIN        10                      ' left line sensor power
 LLineIn      PIN        9                       ' left line sensor input
-RLinePwr     PIN        7                       ' right line sensor power
+RLinePower   PIN        7                       ' right line sensor power
 RLineIn      PIN        8                       ' right line sensor input
 
-LfIrOut      PIN        4                       ' left IR LED output
-LfIrIn       PIN        11                      ' left IR sensor input
-RtIrOut      PIN        15                      ' right IR LED output
-RtIrIn       PIN        14                      ' right IR sensor input
-
-Speaker      PIN        1                       ' piezo speaker
-StartLED     PIN        0                       ' display start delay
-
-' -----[ Constants ]-------------------------------------------------------
-
-LFwdFast     CON        1000                    ' left motor fwd; fast
-LFwdSlow     CON        800                     ' left motor fwd; slow
-LStop        CON        750                     ' left motor stop
-LRevSlow     CON        700                     ' left motor rev; slow
-LRevFast     CON        500                     ' left motor rev; fast
-
-RFwdFast     CON        500                     ' right motor fwd; fast
-RFwdSlow     CON        700                     ' right motor fwd; slow
-RStop        CON        750                     ' right motor stop
-RRevSlow     CON        800                     ' right motor rev; slow
-RRevFast     CON        1000                    ' right motor rev; fast
 
 ' -----[ Variables ]-------------------------------------------------------
 
-lLine        VAR        Word                    ' left sensor raw reading
-rLine        VAR        Word                    ' right sensor raw reading
-lineBits     VAR        Nib                     ' decoded sensors value
-lbLeft       VAR        lineBits.BIT1
-lbRight      VAR        lineBits.BIT0
+Search_count VAR        Word                    ' Count how long we're in the search mode
+Ring_count   VAR        Word                    ' Count how long we're trying to avoid the edge of the ring
+Run_Count    VAR        Byte                    ' Count how many matches we've played between power cycles
+Delay_Count  VAR        Byte                    ' Count how many seconds since reset button
+LLine        VAR        Word                    ' left sensor raw reading
+RLine        VAR        Word                    ' right sensor raw reading
+LBlackThresh VAR        Word                    ' QTI black threshold - Left
+RBlackThresh VAR        Word                    ' QTI black threshold - Right
+LineBits     VAR        Nib                     ' decoded sensors value
+LbLeft       VAR        lineBits.BIT1
+LbRight      VAR        lineBits.BIT0
 
-irBits       VAR        Nib                     ' IR readings (l & r)
-irLeft       VAR        irBits.BIT1
-irRight      VAR        irBits.BIT0
-lastIr       VAR        Nib                     ' info from last reading
-
-pulses       VAR        Byte                    ' counter for motor control
-temp         VAR        Byte
+IRBits       VAR        Nib                     ' IR readings (l & r)
+IRLeft       VAR        irBits.BIT1
+IRRight      VAR        irBits.BIT0
 
 ' -----[ EEPROM Data ]-----------------------------------------------------
 
-RunStatus    DATA       $00                     ' run status
+RunCount    DATA       $00                     ' Run counter
 
+'*****************************************************************************************
 ' -----[ Initialization ]--------------------------------------------------
-
+'*****************************************************************************************
+'************************** DO NOT CHANGE CODE HERE! (Rule Violation!) *******************
+'*****************************************************************************************
 Reset:
-  READ RunStatus, temp                          ' read current status
-  temp = ~temp                                  ' invert status
-  WRITE RunStatus, temp                         ' save for next reset
-  IF (temp > 0) THEN END                        ' okay to run?
-
-  LOW LMotor                                    ' make more pins outputs
+  LOW LMotor                                   ' Make Motor pins outputs
   LOW RMotor
 
-Start_Delay:                                    ' five second delay
-  FOR temp = 1 TO 5
-    HIGH StartLED                               ' show active
-    PAUSE 900
-    INPUT StartLED                              ' blink each second
-    FREQOUT Speaker, 100, 2500, 3000            ' beep each second
-  NEXT
+  READ RunCount, Run_Count                     ' Read Run Counter
+  Run_Count = Run_Count + 1                    ' Ran one more time
+  WRITE RunCount, Run_Count                    ' Store it back into NVRAM
+  Run_Count = Run_Count & 1                    ' Make it Odd or Even
+  IF (Run_Count = 1) THEN END                  ' Run every other time reset button is pushed
 
-  GOTO Dodge                                    ' start aggressive!
+Start_Delay:                                   ' five second delay
+  FOR Delay_Count = 1 TO 5
+    HIGH RedLED                                ' show active
+    PAUSE 700
+    INPUT RedLED                               ' blink each second
+    FREQOUT Speaker, 300, 4000, 3300           ' beep each second
+  NEXT
+  Search_count = 0
+  GOTO Dodge
+
+'*****************************************************************************************
+'*****************************************************************************************
+
+' Sets black threshold to the initial reading of the two sensor readings minus an offset.
+' SumoBot must be placed over black playing surface before this code runs.
+' Moved this code here to allow the SumoBot to settle and shadows to retreat after Reset is pushed.
+
+Set_Threshold:                                  ' set QTI black threshold
+  GOSUB Read_Line_Sensors                       ' Higher numbers mean darker surface.
+  LBlackThresh = LLine * 7/10                 ' Set Left Line Sensor threshold
+  RBlackThresh = RLine * 7/10                 ' Set Right Line Sensor threshold
+
+' ********************************************************************************
+' ********************************************************************************
 
 ' -----[ Program Code ]----------------------------------------------------
 
 Main:
+' ********************************************************************************
+' ******************** DEFENSIVE CODE ********************************************
+' ********************************************************************************
   GOSUB Read_Line_Sensors
 
-  ' If not on the Shikiri line (border), continue to look for opponent,
-  ' otherwise, spin back toward center and resume search
+' If not on the Shikiri line (border), continue with Offensive action
+ BRANCH lineBits, [Offensive_Code, Pivot_Left, Pivot_Right, Backup]
 
-  BRANCH lineBits, [Search_For_Opponent, Spin_Left, Spin_Right, About_Face]
+' ********************************************************************************
+' ********************************************************************************
 
-' --[ Border Avoidance ]--
+' ********************************************************************************
+' ******************** OFFENSIVE CODE **** Executes only if not on the edge! *****
+' ********************************************************************************
+Offensive_Code:
 
-Spin_Left:                                      ' right sensor was active
-  FOR pulses = 1 TO 20
-    PULSOUT LMotor, LRevFast
-    PULSOUT RMotor, RFwdFast
-    PAUSE 20
-  NEXT
-  lastIr = %00                                  ' clear scan direction
-  GOTO Lunge
-
-Spin_Right:                                     ' left sensor was active
-  FOR pulses = 1 TO 20
-    PULSOUT LMotor, LFwdFast
-    PULSOUT RMotor, RRevFast
-    PAUSE 20
-  NEXT
-  lastIr = %00
-  GOTO Lunge
-
-About_Face:                                     ' both sensors on Shikiri
-  FOR pulses = 1 TO 10                          ' back up from edge
-    PULSOUT LMotor, LRevFast
-    PULSOUT RMotor, RRevFast
-    PAUSE 20
-  NEXT
-  FOR pulses = 1 TO 30                          ' turn around
-    PULSOUT LMotor, LFwdFast
-    PULSOUT RMotor, RRevFast
-    PAUSE 20
-  NEXT
-  lastIr = %00
-  GOTO Lunge
-
-' --[ IR Processing ]--
-
-Search_For_Opponent:
   GOSUB Read_IR_Sensors
 
   ' If opponent is not in view, scan last known direction. Turn toward
   ' opponent if seen by one "eye" -- if both, lunge forward
 
-BRANCH irBits, [Scan, Follow_Right, Follow_Left, Lunge]
+  BRANCH irBits, [Search, Spin_Right, Spin_Left, Fast_Fwd]
 
-Scan:
-  BRANCH lastIR, [Move_Fwd, Scan_Right, Scan_Left]
-
-Move_Fwd:
-  GOSUB Creep_Forward
   GOTO Main
 
-Scan_Right:                                     ' spin right, slow
-  FOR pulses = 1 TO 5
-    PULSOUT LMotor, LFwdSlow
-    PULSOUT RMotor, RRevSlow
-    PAUSE 20
+' ********************************************************************************
+' ********************************************************************************
+
+Pivot_Left:                                      ' Right line sensor was active, turn left
+  FOR Ring_count = 1 TO 100                      ' You can determine how much to pivot
+    PULSOUT LMotor, LFastR
+    PULSOUT RMotor, RSlowF
+    NEXT
+  GOTO Main
+
+Pivot_Right:                                     ' Left line sensor was active, turn right
+  FOR Ring_count = 1 TO 100                      ' You can determine how much to pivot
+    PULSOUT LMotor, LSlowF
+    PULSOUT RMotor, RFastR
   NEXT
-  GOSUB Creep_Forward                           ' keep moving
   GOTO Main
 
-Scan_Left:                                      ' spin left, slow
-  FOR pulses = 1 TO 5
-    PULSOUT LMotor, LRevSlow
-    PULSOUT RMotor, RFwdSlow
-    PAUSE 20
+Backup:                                          ' Both sensors on edge of ring
+  FOR Ring_count = 1 TO 200                      ' You can determine how far to backup
+    PULSOUT LMotor, LFastR
+    PULSOUT RMotor, RFastR
   NEXT
-  GOSUB Creep_Forward
+  GOTO Pivot_Right                               ' You can decide which way to turn after backing up
+
+Spin_Left:                                      ' right sensor was active
+    PULSOUT LMotor, LFastR
+    PULSOUT RMotor, RFastF
   GOTO Main
 
-Follow_Right:                                   ' spin right, fast
-  PULSOUT LMotor, LFwdFast
-  PULSOUT RMotor, RRevSlow
-  lastIR = irBits                               ' save last direction found
+Spin_Right:                                     ' left sensor was active
+    PULSOUT LMotor, LFastF
+    PULSOUT RMotor, RFastR
   GOTO Main
 
-Follow_Left:                                    ' spin left, fast
-  PULSOUT LMotor, LRevSlow
-  PULSOUT RMotor, RFwdFast
-  lastIR = irBits
+Halt:                                            ' stop motors
+    PULSOUT LMotor, LStop
+    PULSOUT RMotor, RStop
+    GOTO Main
+
+Slow_Fwd:
+    PULSOUT LMotor, LSlowF
+    PULSOUT RMotor, RSlowF
   GOTO Main
 
-Lunge:                                          ' locked on -- go get him!
-  FOR pulses = 1 TO 10
-    PULSOUT LMotor, LFwdFast
-    PULSOUT RMotor, RFwdFast
+Fast_Fwd:                                        ' Move forward as fast as possible
+    HIGH RedLED
+    HIGH Speaker
+    PULSOUT LMotor, LFastF
+    PULSOUT RMotor, RFastF
+    INPUT RedLED                                 ' Blink each time we attack
+    LOW Speaker                                  ' Make some noise each time we attack
+  GOTO Main
+
+Search:
+    PULSOUT LMotor, LFastF
+    PULSOUT RMotor, RFastF
+  GOTO Main
+
+Lunge:
+  FOR Delay_Count = 1 TO 10
+    PULSOUT LMotor, LFastF
+    PULSOUT RMotor, RFastF
     GOSUB Read_Line_Sensors
-    IF (lineBits = %11) THEN About_Face
+    IF (lineBits = %11) THEN Backup
   NEXT
   GOTO Main
 
 ' -----[ Subroutines ]-----------------------------------------------------
-
 Dodge:
-  FOR pulses = 1 TO 5
-    PULSOUT LMotor, LFwdFast
-    PULSOUT RMotor, RRevFast
+  FOR Delay_Count = 1 TO 5
+    PULSOUT LMotor, LFastF
+    PULSOUT RMotor, RFastR
     PAUSE 20
   NEXT
-  FOR pulses = 1 TO 20
-    PULSOUT LMotor, LFwdFast
-    PULSOUT RMotor, RFwdFast
+  FOR Delay_Count = 1 TO 20
+    PULSOUT LMotor, LFastF
+    PULSOUT RMotor, RFastF
     PAUSE 20
   NEXT
-  FOR pulses = 1 TO 10
-    PULSOUT LMotor, LRevFast
-    PULSOUT RMotor, RFwdFast
+  FOR Delay_Count = 1 TO 10
+    PULSOUT LMotor, LFastR
+    PULSOUT RMotor, RFastF
     PAUSE 20
   NEXT
-  lastIr = %00
   GOTO Lunge
 
 Read_Line_Sensors:
-  HIGH LLinePwr                                 ' activate sensors
-  HIGH RLinePwr
-  HIGH LLineIn                                  ' discharge caps
+  HIGH LLinePower                               ' Activate sensors
+  HIGH RLinePower
+  HIGH LLineIn                                  ' Discharge caps
   HIGH RLineIn
   PAUSE 1
-  RCTIME LLineIn, 1, lLine                      ' read left sensor
-  RCTIME RLineIn, 1, rLine                      ' read right sensor
-  LOW LLinePwr                                  ' deactivate sensors
-  LOW RLinePwr
+  RCTIME LLineIn, 1, lLine                      ' Read left sensor (Higher numbers mean darker surface)
+  RCTIME RLineIn, 1, rLine                      ' Read right sensor (Higher numbers mean darker surface)
+  LOW LLinePower                                ' Deactivate sensors
+  LOW RLinePower                                ' Deactivate sensors
 
-  ' convert readings to bits  0 = black, 1 = white line
-  IF (lLine < 210) THEN
-    lbLeft = 1
-  ELSEIF (lLine < 20000) THEN
-    lbLeft =0
-  ELSE
-    lbLeft = 1
-  ENDIF
-
-  IF (rLine < 300) THEN
-    lbRight = 1
-  ELSEIF (rLine < 20000) THEN
-    lbRight =0
-  ELSE
-    lbRight = 1
-  ENDIF
+                                                ' Convert readings to bits
+  LOOKDOWN LLine, >=[LBlackThresh, 0], LbLeft   ' 0 = black, 1 = line
+  LOOKDOWN RLine, >=[RBlackThresh, 0], LbRight  ' 0 = black, 1 = line
   RETURN
 
 Read_IR_Sensors:
-  FREQOUT LfIrOut, 1, 38500                     ' modulate left IR LED
-  irLeft = ~LfIrIn                              ' read input (1 = target)
-  FREQOUT RtIrOut, 1, 38500                     ' modulate right IR LED
-  irRight = ~RtIrIn                             ' read input (1 = target)
-  RETURN
-
-Creep_Forward:
-  FOR pulses = 1 TO 20
-    PULSOUT LMotor, LFwdSlow
-    PULSOUT RMotor, RFwdSlow
-    GOSUB Read_Line_Sensors
-    IF (lineBits = %11) THEN About_Face
-  NEXT
-  RETURN
+  FREQOUT LIROut, AGC, 38500                   ' modulate left IR LED, set AGC level in receiver
+  irLeft = ~LIRIn                              ' read input (1 = target)
+  FREQOUT RIROut, AGC, 38500                   ' modulate right IR LED, set AGC level in receiver
+  irRight = ~RIRIn                             ' read input (1 = target)
+ RETURN
