@@ -236,31 +236,31 @@ Dodge:
   GOTO Lunge
 
 Read_Line_Sensors:
-  HIGH LLinePwr                                 ' activate sensors
-  HIGH RLinePwr
+  HIGH LLinePower                                 ' activate sensors
+  HIGH RLinePower
   HIGH LLineIn                                  ' discharge caps
   HIGH RLineIn
   PAUSE 1
-  RCTIME LLineIn, 1, lLine                      ' read left sensor
-  RCTIME RLineIn, 1, rLine                      ' read right sensor
-  LOW LLinePwr                                  ' deactivate sensors
-  LOW RLinePwr
+  RCTIME LLineIn, 1, LLine                      ' read left sensor
+  RCTIME RLineIn, 1, RLine                      ' read right sensor
+  LOW LLinePower                                  ' deactivate sensors
+  LOW RLinePower
 
   ' convert readings to bits  0 = black, 1 = white line
-  IF (lLine < 210) THEN
-    lbLeft = 1
-  ELSEIF (lLine < 20000) THEN
-    lbLeft =0
+  IF (LLine < 210) THEN
+    LbLeft = 1
+  ELSEIF (LLine < 20000) THEN
+    LbLeft =0
   ELSE
-    lbLeft = 1
+    LbLeft = 1
   ENDIF
 
   IF (rLine < 300) THEN
-    lbRight = 1
+    LbRight = 1
   ELSEIF (rLine < 20000) THEN
-    lbRight =0
+    LbRight =0
   ELSE
-    lbRight = 1
+    LbRight = 1
   ENDIF
   RETURN
 
